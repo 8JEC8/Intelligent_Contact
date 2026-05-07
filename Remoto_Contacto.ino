@@ -1,12 +1,29 @@
 #include <SPI.h>
 #include <LoRa.h>
 #include "esp_task_wdt.h"
+#include <Wire.h>
+#include <ZMPT101B.h>
+
+#define PIN_VOLTAGE 19
+#define SENSITIVITY 400.0f
+#define CALIBRATION_FACTOR 1.38
+ZMPT101B voltageSensor(PIN_VOLTAGE, 60.0);
 
 #define LORA_FREQ 433E6
 #define LORA_SS   10    // CS
 #define LORA_DIO0 42    // DIO0
 #define WDT_TIMEOUT 10  // seconds
 #define RELAY_PIN 5     // Relay Pin
+
+float voltageSum = 0.0;
+float voltageValue = 0.0;
+
+int sampleCount = 0;
+
+unsigned long lastSampleTime = 0;
+
+const int NUM_MUESTRAS = 5;
+const int SAMPLE_INTERVAL = 100;
 
 bool receivingTel = false;
 bool wasReceivingTel = false;       // Recordar estado previo
@@ -58,6 +75,27 @@ void setup() {
 
 void loop() {
   esp_task_wdt_reset();
+
+  // Passive voltage sampling
+  if (millis() - lastSampleTime >= SAMPLE_INTERVAL) {
+
+    lastSampleTime = millis();
+
+    float voltage = voltageSensor.getRmsVoltage();
+
+    voltageSum += voltage;
+    sampleCount++;
+
+    // Rolling average
+    if (sampleCount >= NUM_MUESTRAS) {
+
+      voltageValue = voltageSum / NUM_MUESTRAS;
+
+      // Reset for next rolling average
+      voltageSum = 0;
+      sampleCount = 0;
+    }
+  }
   
   // LoRa check
   int packetSize = LoRa.parsePacket();
@@ -115,9 +153,8 @@ void handleRequest(String cmd) {
   }
 
   else if (cmd == "VOLT") {
-    Serial.println("*Obtener con Sensor de Voltaje*");
     LoRa.beginPacket();
-    LoRa.print("*Voltaje*");
+    LoRa.print(voltageValue);
     LoRa.endPacket();
   }
 
