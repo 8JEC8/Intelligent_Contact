@@ -3,17 +3,48 @@
 #include "esp_task_wdt.h"
 #include <Wire.h>
 #include <ZMPT101B.h>
-
-#define PIN_VOLTAGE 19
-#define SENSITIVITY 400.0f
-#define CALIBRATION_FACTOR 1.38
-ZMPT101B voltageSensor(PIN_VOLTAGE, 60.0);
+#include <math.h>
 
 #define LORA_FREQ 433E6
 #define LORA_SS   10    // CS
 #define LORA_DIO0 42    // DIO0
 #define WDT_TIMEOUT 10  // seconds
 #define RELAY_PIN 5     // Relay Pin
+
+#define PIN_VOLTAGE 17
+#define SENSITIVITY 400.0f
+#define CALIBRATION_FACTOR 1.38
+ZMPT101B voltageSensor(PIN_VOLTAGE, 60.0);
+
+#define PIN_CURRENT 18
+// ADC ESP32
+const float Vref = 3.3;
+const float ADCmax = 4095.0;
+
+// Muestreo
+const int N = 1000;
+const float fs = 4000.0;
+
+// Sensor CT
+const float Rb = 100.0;
+const float Nct = 1000.0;
+
+float Ki = 1.0;
+float calibracion = 0.60;
+
+float currentValue = 0.0;
+float meanAdc = 0.0;
+float sumI2 = 0.0;
+float sumaPromedio = 0.0;
+int sampleIndex = 0;
+int promedioIndex = 0;
+
+unsigned long lastCurrentSample = 0;
+
+const unsigned long CURRENT_SAMPLE_US =
+  (unsigned long)(1000000.0 / fs);
+
+bool measuringOffset = true;
 
 float voltageSum = 0.0;
 float voltageValue = 0.0;
@@ -31,6 +62,8 @@ TaskHandle_t watchdogTaskHandle = NULL;
 
 void setup() {
   Serial.begin(115200);
+  analogReadResolution(12);
+  analogSetPinAttenuation(PIN_CURRENT, ADC_11db);
   while (!Serial);
 
   pinMode(RELAY_PIN, OUTPUT);
@@ -96,6 +129,64 @@ void loop() {
       sampleCount = 0;
     }
   }
+
+  if (micros() - lastCurrentSample >= CURRENT_SAMPLE_US) {
+
+    lastCurrentSample = micros();
+    int raw = analogRead(PIN_CURRENT);
+    float v = (raw * Vref) / ADCmax;
+
+    // OFFSET PHASE
+    if (measuringOffset) {
+      meanAdc += v;
+      sampleIndex++;
+
+      if (sampleIndex >= N) {
+        meanAdc /= N;
+        sampleIndex = 0;
+        measuringOffset = false;
+      }
+    }
+
+    // RMS PHASE
+    else {
+      float vac = v - meanAdc;
+      float iSec = vac / Rb;
+      float iPrim = Ki * Nct * iSec;
+      sumI2 += iPrim * iPrim;
+      sampleIndex++;
+
+      if (sampleIndex >= N) {
+
+        float Irms = sqrt(sumI2 / N);
+        // Correccion offset
+        Irms = (Irms - 0.10) * calibracion;
+
+        if (Irms < 0.01)
+          Irms = 0;
+
+        sumaPromedio += Irms;
+        promedioIndex++;
+
+        if (promedioIndex >= 5) {
+
+          currentValue = sumaPromedio / 5.0;
+
+          sumaPromedio = 0;
+          promedioIndex = 0;
+        }
+
+        // Reset cycle
+
+        meanAdc = 0.0;
+        sumI2 = 0.0;
+
+        sampleIndex = 0;
+
+        measuringOffset = true;
+      }
+    }
+  }
   
   // LoRa check
   int packetSize = LoRa.parsePacket();
@@ -159,9 +250,8 @@ void handleRequest(String cmd) {
   }
 
   else if (cmd == "CORR") {
-    Serial.println("*Obtener con Sensor de Corriente*");
     LoRa.beginPacket();
-    LoRa.print("*Corriente*");
+    LoRa.print(currentValue);
     LoRa.endPacket();
   }
 
