@@ -4,6 +4,11 @@
 #include <Wire.h>
 #include <ZMPT101B.h>
 #include <math.h>
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN    6
+#define LED_COUNT  8
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 #define LORA_FREQ 433E6
 #define LORA_SS   10    // CS
@@ -57,7 +62,10 @@ const int NUM_MUESTRAS = 5;
 const int SAMPLE_INTERVAL = 100;
 
 bool receivingTel = false;
-bool wasReceivingTel = false;       // Recordar estado previo
+
+unsigned long lastTelemetryTime = 0;
+const unsigned long TELEMETRY_INTERVAL = 1500;
+
 TaskHandle_t watchdogTaskHandle = NULL;
 
 void setup() {
@@ -66,8 +74,14 @@ void setup() {
   analogSetPinAttenuation(PIN_CURRENT, ADC_11db);
   while (!Serial);
 
+  strip.begin();
+  strip.setBrightness(20);
+  strip.clear();
+  strip.show();
+
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
+  updateRelayLEDs();
 
   const esp_task_wdt_config_t wdt_config = {
         .timeout_ms = WDT_TIMEOUT * 1000,
@@ -187,6 +201,18 @@ void loop() {
       }
     }
   }
+
+  if (receivingTel &&
+      millis() - lastTelemetryTime >= TELEMETRY_INTERVAL) {
+
+    lastTelemetryTime = millis();
+
+    String payload = buildTelemetryCSV();
+
+    LoRa.beginPacket();
+    LoRa.print(payload);
+    LoRa.endPacket();
+  }
   
   // LoRa check
   int packetSize = LoRa.parsePacket();
@@ -212,12 +238,40 @@ void loop() {
   }
 }
 
+String buildTelemetryCSV() {
+
+  float powerValue = 0;
+
+  if (voltageValue > 0 && currentValue > 0) {
+    powerValue = voltageValue * currentValue;
+  }
+
+  String payload = "";
+  payload.reserve(64);
+
+  payload += String(voltageValue, 3);
+  payload += ",";
+
+  payload += String(currentValue, 3);
+  payload += ",";
+
+  payload += String(powerValue, 3);
+  payload += ",";
+
+  payload += String(10000);
+
+  return payload;
+}
+
 void handleRequest(String cmd) {
   if (cmd == "GO") {
-    receivingTel = true;
     LoRa.beginPacket();
     LoRa.print("INFO_ON");
     LoRa.endPacket();
+
+    receivingTel = true;
+
+    lastTelemetryTime = millis();
   }
 
   else if (cmd == "STP") {
@@ -230,6 +284,7 @@ void handleRequest(String cmd) {
   else if (cmd == "ON") {
     Serial.println("Contacto Encendido");
     digitalWrite(RELAY_PIN, HIGH);
+    updateRelayLEDs();
     LoRa.beginPacket();
     LoRa.print("CONT_ON");
     LoRa.endPacket();
@@ -238,6 +293,7 @@ void handleRequest(String cmd) {
   else if (cmd == "OFF") {
     Serial.println("Contacto Apagado");
     digitalWrite(RELAY_PIN, LOW);
+    updateRelayLEDs();
     LoRa.beginPacket();
     LoRa.print("CONT_OFF");
     LoRa.endPacket();
@@ -245,13 +301,13 @@ void handleRequest(String cmd) {
 
   else if (cmd == "VOLT") {
     LoRa.beginPacket();
-    LoRa.print(voltageValue);
+    LoRa.print(voltageValue, 3);
     LoRa.endPacket();
   }
 
   else if (cmd == "CORR") {
     LoRa.beginPacket();
-    LoRa.print(currentValue);
+    LoRa.print(currentValue, 3);
     LoRa.endPacket();
   }
 
@@ -290,6 +346,24 @@ void handleRequest(String cmd) {
     delay(200);
     ESP.restart();
   }
+}
+
+void updateRelayLEDs() {
+  if (digitalRead(RELAY_PIN) == HIGH) {
+    // GREEN = relay ON
+    for (int i = 0; i < LED_COUNT; i++) {
+      strip.setPixelColor(i, strip.Color(0, 25, 0));
+    }
+  }
+
+  else {
+    // RED = relay OFF
+    for (int i = 0; i < LED_COUNT; i++) {
+      strip.setPixelColor(i, strip.Color(25, 0, 0));
+    }
+  }
+
+  strip.show();
 }
 
 void watchdogTask(void *parameter) {
