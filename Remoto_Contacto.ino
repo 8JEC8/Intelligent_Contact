@@ -22,11 +22,12 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 ZMPT101B voltageSensor(PIN_VOLTAGE, 60.0);
 
 #define PIN_CURRENT 18
+
 // ADC ESP32
 const float Vref = 3.3;
 const float ADCmax = 4095.0;
 
-// Muestreo
+// Muestreo corriente RMS
 const int N = 1000;
 const float fs = 4000.0;
 
@@ -68,6 +69,40 @@ const unsigned long TELEMETRY_INTERVAL = 1500;
 
 TaskHandle_t watchdogTaskHandle = NULL;
 
+// =====================================================
+// FACTOR DE POTENCIA — variables agregadas
+// =====================================================
+
+const int N_FP = 2000;           // Muestras para captura FP
+const float fs_FP = 5000.0;      // Frecuencia de muestreo FP
+
+float muestrasVoltajeFP[N_FP];
+float muestrasCorrienteFP[N_FP];
+
+const int NUM_FP = 10;
+float historialFP[NUM_FP] = {0};
+int indiceFP = 0;
+
+float factorPotencia = 0.0;
+
+// FP se recalcula cada FP_INTERVAL ms (no bloqueante)
+const unsigned long FP_INTERVAL = 125;
+unsigned long lastFPTime = 0;
+
+// Estado de la máquina de estados del cálculo FP
+enum FPState { FP_IDLE, FP_OFFSET, FP_SAMPLING, FP_CALC };
+FPState fpState = FP_IDLE;
+
+int fpSampleIdx = 0;
+float fpOffsetV = 0.0;
+float fpOffsetI = 0.0;
+unsigned long fpLastSampleUs = 0;
+const unsigned long FP_SAMPLE_US = (unsigned long)(1000000.0 / fs_FP);
+
+// =====================================================
+// SETUP
+// =====================================================
+
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);
@@ -94,13 +129,13 @@ void setup() {
   Serial.println("WATCHDOG_LOOP_ENABLED");
 
   xTaskCreatePinnedToCore(
-    watchdogTask,           // task function
-    "watchdogTask",         // name
-    4096,                   // stack size
-    NULL,                   // parameter
-    1,                      // priority
-    &watchdogTaskHandle,    // task handle
-    0                       // core 0 (low priority)
+    watchdogTask,
+    "watchdogTask",
+    4096,
+    NULL,
+    1,
+    &watchdogTaskHandle,
+    0
   );
 
   SPI.begin();
@@ -120,50 +155,43 @@ void setup() {
   LoRa.enableCrc();
 }
 
+// =====================================================
+// LOOP
+// =====================================================
+
 void loop() {
   esp_task_wdt_reset();
 
-  // Passive voltage sampling
+  // --- Voltaje RMS (sin cambios) ---
   if (millis() - lastSampleTime >= SAMPLE_INTERVAL) {
-
     lastSampleTime = millis();
 
     float voltage = voltageSensor.getRmsVoltage();
-
     voltageSum += voltage;
     sampleCount++;
 
-    // Rolling average
     if (sampleCount >= NUM_MUESTRAS) {
-
       voltageValue = voltageSum / NUM_MUESTRAS;
-
-      // Reset for next rolling average
       voltageSum = 0;
       sampleCount = 0;
     }
   }
 
+  // --- Corriente RMS (sin cambios) ---
   if (micros() - lastCurrentSample >= CURRENT_SAMPLE_US) {
-
     lastCurrentSample = micros();
     int raw = analogRead(PIN_CURRENT);
     float v = (raw * Vref) / ADCmax;
 
-    // OFFSET PHASE
     if (measuringOffset) {
       meanAdc += v;
       sampleIndex++;
-
       if (sampleIndex >= N) {
         meanAdc /= N;
         sampleIndex = 0;
         measuringOffset = false;
       }
-    }
-
-    // RMS PHASE
-    else {
+    } else {
       float vac = v - meanAdc;
       float iSec = vac / Rb;
       float iPrim = Ki * Nct * iSec;
@@ -171,40 +199,33 @@ void loop() {
       sampleIndex++;
 
       if (sampleIndex >= N) {
-
         float Irms = sqrt(sumI2 / N);
-        // Correccion offset
         Irms = (Irms - 0.10) * calibracion;
-
-        if (Irms < 0.01)
-          Irms = 0;
+        if (Irms < 0.01) Irms = 0;
 
         sumaPromedio += Irms;
         promedioIndex++;
 
         if (promedioIndex >= 5) {
-
           currentValue = sumaPromedio / 5.0;
-
           sumaPromedio = 0;
           promedioIndex = 0;
         }
 
-        // Reset cycle
-
         meanAdc = 0.0;
         sumI2 = 0.0;
-
         sampleIndex = 0;
-
         measuringOffset = true;
       }
     }
   }
 
+  // --- Factor de potencia no bloqueante ---
+  calcularFP();
+
+  // --- Telemetría LoRa (sin cambios) ---
   if (receivingTel &&
       millis() - lastTelemetryTime >= TELEMETRY_INTERVAL) {
-
     lastTelemetryTime = millis();
 
     String payload = buildTelemetryCSV();
@@ -213,8 +234,8 @@ void loop() {
     LoRa.print(payload);
     LoRa.endPacket();
   }
-  
-  // LoRa check
+
+  // --- LoRa receive (sin cambios) ---
   int packetSize = LoRa.parsePacket();
   if (packetSize) {
     String received = "";
@@ -223,14 +244,12 @@ void loop() {
     }
     received.trim();
 
-    // Ack
     LoRa.beginPacket();
     LoRa.print("ACK_" + received);
     LoRa.endPacket();
-    
 
     if (received == "SRA" || received == "MRA" || received == "LRA") {
-      delay(250);  // 250 para acabar ACK
+      delay(250);
     }
 
     delay(50);
@@ -238,39 +257,143 @@ void loop() {
   }
 }
 
+// =====================================================
+// FACTOR DE POTENCIA — máquina de estados no bloqueante
+// =====================================================
+
+void calcularFP() {
+
+  switch (fpState) {
+
+    // Esperar intervalo antes de iniciar nueva medición
+    case FP_IDLE:
+      if (millis() - lastFPTime >= FP_INTERVAL) {
+        fpOffsetV = 0.0;
+        fpOffsetI = 0.0;
+        fpSampleIdx = 0;
+        fpState = FP_OFFSET;
+      }
+      break;
+
+    // Calcular offset con 500 muestras (una por iteración de loop)
+    case FP_OFFSET:
+      if (fpSampleIdx < 500) {
+        fpOffsetV += analogRead(PIN_VOLTAGE);
+        fpOffsetI += analogRead(PIN_CURRENT);
+        fpSampleIdx++;
+      } else {
+        fpOffsetV /= 500.0;
+        fpOffsetI /= 500.0;
+        fpSampleIdx = 0;
+        fpLastSampleUs = micros();
+        fpState = FP_SAMPLING;
+      }
+      break;
+
+    // Tomar N_FP muestras sincronizadas a fs_FP
+    case FP_SAMPLING:
+      if (fpSampleIdx < N_FP) {
+        if (micros() - fpLastSampleUs >= FP_SAMPLE_US) {
+          fpLastSampleUs += FP_SAMPLE_US;
+
+          int rawV = analogRead(PIN_VOLTAGE);
+          int rawI = analogRead(PIN_CURRENT);
+
+          muestrasVoltajeFP[fpSampleIdx] = rawV - fpOffsetV;
+
+          float adcI = rawI - fpOffsetI;
+          float voltSensor = (adcI * Vref) / ADCmax;
+          float iSec = voltSensor / Rb;
+          muestrasCorrienteFP[fpSampleIdx] = Ki * Nct * iSec;
+
+          fpSampleIdx++;
+        }
+      } else {
+        fpState = FP_CALC;
+      }
+      break;
+
+    // Calcular FP a partir de las muestras (no bloqueante, corre en un ciclo de loop)
+    case FP_CALC: {
+      // Buscar cruce por cero ascendente — voltaje
+      int ceroV = -1;
+      for (int i = 1; i < N_FP; i++) {
+        if (muestrasVoltajeFP[i - 1] < 0 && muestrasVoltajeFP[i] >= 0) {
+          ceroV = i;
+          break;
+        }
+      }
+
+      // Buscar cruce por cero ascendente — corriente
+      int ceroI = -1;
+      for (int i = 1; i < N_FP; i++) {
+        if (muestrasCorrienteFP[i - 1] < 0 && muestrasCorrienteFP[i] >= 0) {
+          ceroI = i;
+          break;
+        }
+      }
+
+      if (ceroV != -1 && ceroI != -1) {
+        int diferenciaMuestras = ceroI - ceroV;
+        float desfaseTiempo = diferenciaMuestras / fs_FP;
+        float angulo = desfaseTiempo * 2.0 * PI * 60.0;
+        float fpInstantaneo = abs(cos(angulo));
+
+        if (fpInstantaneo > 1.0) fpInstantaneo = 1.0;
+        if (fpInstantaneo < 0.0) fpInstantaneo = 0.0;
+
+        historialFP[indiceFP] = fpInstantaneo;
+        indiceFP++;
+        if (indiceFP >= NUM_FP) indiceFP = 0;
+
+        float sumaFP = 0;
+        for (int i = 0; i < NUM_FP; i++) sumaFP += historialFP[i];
+        factorPotencia = sumaFP / NUM_FP;
+      } else {
+        factorPotencia = 0.0;
+      }
+
+      lastFPTime = millis();
+      fpState = FP_IDLE;
+      break;
+    }
+  }
+}
+
+// =====================================================
+// TELEMETRÍA — FP reemplaza el 10000 placeholder
+// =====================================================
+
 String buildTelemetryCSV() {
-
   float powerValue = 0;
-
   if (voltageValue > 0 && currentValue > 0) {
     powerValue = voltageValue * currentValue;
   }
 
   String payload = "";
-  payload.reserve(64);
+  payload.reserve(80);
 
   payload += String(voltageValue, 3);
   payload += ",";
-
   payload += String(currentValue, 3);
   payload += ",";
-
   payload += String(powerValue, 3);
   payload += ",";
-
-  payload += String(10000);
+  payload += String(factorPotencia, 3);   // <-- antes era 10000
 
   return payload;
 }
+
+// =====================================================
+// HANDLE REQUEST (sin cambios excepto caso "FP")
+// =====================================================
 
 void handleRequest(String cmd) {
   if (cmd == "GO") {
     LoRa.beginPacket();
     LoRa.print("INFO_ON");
     LoRa.endPacket();
-
     receivingTel = true;
-
     lastTelemetryTime = millis();
   }
 
@@ -280,7 +403,7 @@ void handleRequest(String cmd) {
     LoRa.print("INFO_OFF");
     LoRa.endPacket();
   }
-  
+
   else if (cmd == "ON") {
     Serial.println("Contacto Encendido");
     digitalWrite(RELAY_PIN, HIGH);
@@ -311,13 +434,20 @@ void handleRequest(String cmd) {
     LoRa.endPacket();
   }
 
+  // Comando FP agregado — on-demand desde el receptor
+  else if (cmd == "FASE") {
+    LoRa.beginPacket();
+    LoRa.print(factorPotencia, 3);
+    LoRa.endPacket();
+  }
+/*
   else if (cmd == "FASE") {
     Serial.println("*Obtener con Sensor de V y I*");
     LoRa.beginPacket();
     LoRa.print("*Fase*");
     LoRa.endPacket();
   }
-
+*/
   else if (cmd == "SRA") {
     LoRa.setSpreadingFactor(7);
     LoRa.setSignalBandwidth(250E3);
@@ -348,21 +478,20 @@ void handleRequest(String cmd) {
   }
 }
 
+// =====================================================
+// LEDS Y WATCHDOG (sin cambios)
+// =====================================================
+
 void updateRelayLEDs() {
   if (digitalRead(RELAY_PIN) == HIGH) {
-    // GREEN = relay ON
     for (int i = 0; i < LED_COUNT; i++) {
       strip.setPixelColor(i, strip.Color(0, 25, 0));
     }
-  }
-
-  else {
-    // RED = relay OFF
+  } else {
     for (int i = 0; i < LED_COUNT; i++) {
       strip.setPixelColor(i, strip.Color(25, 0, 0));
     }
   }
-
   strip.show();
 }
 
