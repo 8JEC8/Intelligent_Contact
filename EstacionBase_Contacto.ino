@@ -126,8 +126,7 @@ void setup() {
   webSocket.begin();
   webSocket.onEvent(onWebSocketEvent);
 
-  SPI.begin();
-
+  SPI.begin(13, 12, 11, 10);
   LoRa.setPins(LORA_SS, -1, LORA_DIO0);
 
   if (!LoRa.begin(LORA_FREQ)) {
@@ -242,7 +241,7 @@ void loop() {
     }
 
     else if (received.indexOf(',') != -1) {
-      String webTelemetry = String(rssi) + "," + String(avgRssi) + "," + received;
+      String webTelemetry = String(avgRssi) + "," + received;
       webSocket.broadcastTXT(webTelemetry);
     }
   }
