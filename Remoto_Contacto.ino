@@ -29,7 +29,7 @@ const float ADCmax = 4095.0;
 
 // Muestreo corriente RMS
 const int N = 1000;
-const float fs = 4000.0;
+const float fs = 10000.0;
 
 // Sensor CT
 const float Rb = 100.0;
@@ -334,9 +334,9 @@ void calcularFP() {
       }
 
       if (ceroV != -1 && ceroI != -1) {
-        int diferenciaMuestras = ceroI - ceroV;
-        float desfaseTiempo = diferenciaMuestras / fs_FP;
-        float angulo = desfaseTiempo * 2.0 * PI * 60.0;
+        int diferenciaMuestras = (ceroI - ceroV);
+        float desfaseTiempo = (diferenciaMuestras / fs_FP)-0.00135;
+        float angulo = (desfaseTiempo * 2.0 * PI * 60.0);
         float fpInstantaneo = abs(cos(angulo));
 
         if (fpInstantaneo > 1.0) fpInstantaneo = 1.0;
@@ -366,6 +366,9 @@ void calcularFP() {
 
 String buildTelemetryCSV() {
   float powerValue = 0;
+  if (voltageValue < 20.0) {
+    currentValue = 0.0;
+  }
   if (voltageValue > 0 && currentValue > 0) {
     powerValue = voltageValue * currentValue;
   }
@@ -429,6 +432,7 @@ void handleRequest(String cmd) {
   }
 
   else if (cmd == "CORR") {
+ float corrDisplay = (voltageValue < 20.0) ? 0.0 : currentValue;
     LoRa.beginPacket();
     LoRa.print(currentValue, 3);
     LoRa.endPacket();
