@@ -365,24 +365,60 @@ void calcularFP() {
 // =====================================================
 
 String buildTelemetryCSV() {
-  float powerValue = 0;
+
+  // ---------- PROTECTION ----------
   if (voltageValue < 20.0) {
     currentValue = 0.0;
   }
-  if (voltageValue > 0 && currentValue > 0) {
-    powerValue = voltageValue * currentValue;
+
+  // ---------- POWER CALCULATIONS ----------
+  float apparentPower = 0.0;
+  float realPower = 0.0;
+  float reactivePower = 0.0;
+
+  if (voltageValue > 0.0 &&
+      currentValue > 0.0 &&
+      factorPotencia > 0.0) {
+
+    // Apparent Power (VA)
+    apparentPower = voltageValue * currentValue;
+
+    // Safe local PF copy
+    float pf = factorPotencia;
+
+    if (pf > 1.0) pf = 1.0;
+    if (pf < 0.0) pf = 0.0;
+
+    // Real Power (W)
+    realPower = apparentPower * pf;
+
+    // Phase angle from PF
+    float phi = acos(pf);
+
+    // Reactive Power (VAR)
+    reactivePower = apparentPower * sin(phi);
   }
 
-  String payload = "";
-  payload.reserve(80);
+  // ---------- CSV BUILD ----------
+  String payload;
+  payload.reserve(128);
 
   payload += String(voltageValue, 3);
   payload += ",";
+
   payload += String(currentValue, 3);
   payload += ",";
-  payload += String(powerValue, 3);
+
+  payload += String(apparentPower, 3);
   payload += ",";
-  payload += String(factorPotencia, 3);   // <-- antes era 10000
+
+  payload += String(realPower, 3);
+  payload += ",";
+
+  payload += String(reactivePower, 3);
+  payload += ",";
+
+  payload += String(factorPotencia, 3);
 
   return payload;
 }
