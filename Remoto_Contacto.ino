@@ -65,7 +65,7 @@ const int SAMPLE_INTERVAL = 100;
 bool receivingTel = false;
 
 unsigned long lastTelemetryTime = 0;
-const unsigned long TELEMETRY_INTERVAL = 1500;
+unsigned long TELEMETRY_INTERVAL = 1500;
 
 TaskHandle_t watchdogTaskHandle = NULL;
 
@@ -493,7 +493,7 @@ void handleRequest(String cmd) {
     LoRa.setSignalBandwidth(250E3);
     LoRa.setCodingRate4(5);
     LoRa.setPreambleLength(6);
-    Serial.println("INT1.5");
+    TELEMETRY_INTERVAL = 1500;
   }
 
   else if (cmd == "MRA") {
@@ -501,7 +501,7 @@ void handleRequest(String cmd) {
     LoRa.setSignalBandwidth(125E3);
     LoRa.setCodingRate4(6);
     LoRa.setPreambleLength(8);
-    Serial.println("INT2.5");
+    TELEMETRY_INTERVAL = 2500;
   }
 
   else if (cmd == "LRA") {
@@ -509,7 +509,7 @@ void handleRequest(String cmd) {
     LoRa.setSignalBandwidth(125E3);
     LoRa.setCodingRate4(8);
     LoRa.setPreambleLength(10);
-    Serial.println("INT5.0");
+    TELEMETRY_INTERVAL = 5000;
   }
 
   else if (cmd == "RECONT") {
