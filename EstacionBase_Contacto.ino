@@ -11,17 +11,12 @@
 #define WDT_TIMEOUT 10   // seconds
 
 //////////////////////////////////////////////////////////////////////////////////////////////////// HTML embebido
-const char index_html[] PROGMEM = R"rawliteral(
+const char webpage[] PROGMEM = R"rawliteral(
 
 )rawliteral";
 
-//////////////////////////////////////////////////////////////////////////////////////////////////// JS embebido
-const char main_js[] PROGMEM = R"rawliteral(
-
-)rawliteral";
-
-const char* apSSID = "EVA_Dashboard";
-const char* apPassword = "VOYAGER21"; //min 8 caracteres
+const char* ssid = "CI_Cavs";
+const char* password = "12345678";
 
 WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -94,36 +89,22 @@ void setup() {
 
   // Start AP
   esp_log_level_set("wifi", ESP_LOG_NONE);
-  WiFi.softAP(apSSID, apPassword);
+  WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
   Serial.print("\nConectar a Dashboard: http://");
   Serial.println(IP);
 
-  // Serve HTML
   server.on("/", HTTP_GET, []() {
-    server.send_P(200, "text/html", index_html);
+    server.send_P(200, "text/html", webpage);
   });
 
-  // Serve JS
-  server.on("/main.js", HTTP_GET, []() {
-    server.send_P(200, "application/javascript", main_js);
-  });
 
-  server.on("/chart.umd.min.js", HTTP_GET, []() {
-    File file = LittleFS.open("/chart.umd.min.js", "r");
-    if (!file) {
-      server.send(404, "text/plain", "chart.umd.min.js not found");
-      return;
-    }
-    server.streamFile(file, "application/javascript");
-    file.close();
-  });
-
+  /* SERVIDOR */
 
   server.begin();
 
-  // WebSocket - Servidor
   webSocket.begin();
+
   webSocket.onEvent(onWebSocketEvent);
 
   SPI.begin(13, 12, 11, 10);
@@ -244,6 +225,15 @@ void loop() {
       String webTelemetry = String(avgRssi) + "," + received;
       webSocket.broadcastTXT(webTelemetry);
     }
+
+    else if (received.startsWith("CONT_ON")) {
+      webSocket.broadcastTXT("RELAY_ON");
+    }
+
+    else if (received.startsWith("CONT_OFF")) {
+      webSocket.broadcastTXT("RELAY_OFF");
+    }
+
   }
 
   // REINTENTAR mensaje en cola con Timeout
@@ -337,151 +327,152 @@ void broadcastControlState() {
   webSocket.broadcastTXT(msg);
 }
 
-void onWebSocketEvent(uint8_t client_num, WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
+void onWebSocketEvent(
+  uint8_t client_num,
+  WStype_t type,
+  uint8_t * payload,
+  size_t length
+){
+
+  switch(type){
+
+    /* ========================= */
+    /* CLIENTE CONECTADO */
+    /* ========================= */
+
     case WStype_CONNECTED: {
-      Serial.printf("CLIENT_%u_CONN\n", client_num);
 
-      // Asignar ID dado por Estación
-      webSocket.sendTXT(client_num, "ASSIGN_ID_" + String(client_num));
+      Serial.printf(
+      "CLIENT_%u_CONNECTED\n",
+      client_num);
 
-      // Mandar estado de Control
-      String helloMsg = "CTRL_" + String(controllerClient);
-      webSocket.sendTXT(client_num, helloMsg);
+      webSocket.sendTXT(
+      client_num,
+      "ASSIGN_ID_" + String(client_num));
 
-      // Si no hay controlador, hacer este cliente controlador
-      if (controllerClient == 255) {
+      webSocket.sendTXT(
+      client_num,
+      "CTRL_" + String(controllerClient));
+
+      /* ========================= */
+      /* PRIMER CLIENTE */
+      /* ========================= */
+
+      if(controllerClient == 255){
+
         controllerClient = client_num;
+
         broadcastControlState();
-        Serial.printf("CLIENT_%u_IS_CONTROLLER\n", client_num);
+
       }
+
       break;
     }
+
+    /* ========================= */
+    /* CLIENTE DESCONECTADO */
+    /* ========================= */
 
     case WStype_DISCONNECTED: {
-      Serial.printf("CLIENT_%u_DC\n", client_num);
 
-      // Si controlador DC, control disponible
-      if (client_num == controllerClient) {
+      Serial.printf(
+      "CLIENT_%u_DISCONNECTED\n",
+      client_num);
+
+      if(client_num == controllerClient){
+
         controllerClient = 255;
+
         broadcastControlState();
-        Serial.println("CONTROLLER_DC_RELEASED");
+
       }
+
       break;
     }
 
+    /* ========================= */
+    /* MENSAJES */
+    /* ========================= */
+
     case WStype_TEXT: {
-      String msg = String((char*)payload);
+
+      String msg =
+      String((char*)payload);
+
       msg.trim();
 
-      // Manejar solicitudes de Control
-      if (msg == "REQUEST_CONTROL") {
-        if (controllerClient == 255) {
+      /* ========================= */
+      /* TOMAR CONTROL */
+      /* ========================= */
+
+      if(msg == "REQUEST_CONTROL"){
+
+        if(controllerClient == 255){
+
           controllerClient = client_num;
+
           broadcastControlState();
-          Serial.printf("CLIENT_%u_TAKES_CONTROL\n", client_num);
-        } else {
-          Serial.printf("CLIENT_%u_REQUEST_DENIED\n", client_num, controllerClient);
+
         }
+
         return;
       }
 
-      // Manejar renuncio de Control
-      if (msg == "RELEASE_CONTROL") {
-        if (client_num == controllerClient) {
+      /* ========================= */
+      /* LIBERAR CONTROL */
+      /* ========================= */
+
+      if(msg == "RELEASE_CONTROL"){
+
+        if(client_num == controllerClient){
+
           controllerClient = 255;
+
           broadcastControlState();
-          Serial.printf("CLIENT_%u_RELEASES_CONTROL\n", client_num);
-        } else {
-          // Nada
+
         }
+
         return;
       }
+      /* ========================= */
+      /* SOLO CONTROLADOR */
+      /* ========================= */
 
-      // Solo Controlador puede enviar comands
-      if (client_num == controllerClient) {
-        if (msg == "UP") queueMessage("W");
-        else if (msg == "DOWN") queueMessage("S");
-        else if (msg == "LEFT") queueMessage("A");
-        else if (msg == "RIGHT") queueMessage("D");
-        else if (msg == "CAPTURE_IMG") queueMessage("IMG");
-        else if (msg == "RESET_CAM") queueMessage("RECAM");
-        else if (msg == "START_TEL") queueMessage("GO");
-        else if (msg == "STOP_TEL") queueMessage("STP");
+      if(client_num == controllerClient){
 
-        // GOAL_X,Y
-        else if (msg.startsWith("GOAL_")) {
-          String params = msg.substring(5);
-          params.trim();
+        if(msg == "ON"){
 
-          int sep = params.indexOf(',');
-          if (sep > 0) {
-            String xGoal = params.substring(0, sep);
-            String yGoal = params.substring(sep + 1);
-            queueMessage("GOAL" + xGoal + "," + yGoal);
-          }
-          return;
+          queueMessage("ON");
+
         }
 
-        // OBJECT_X,Y
-        else if (msg.startsWith("OBJECT_")) {
-          String params = msg.substring(7);
-          params.trim();
+        else if(msg == "OFF"){
 
-          int sep = params.indexOf(',');
-          if (sep > 0) {
-            String xObj = params.substring(0, sep);
-            String yObj = params.substring(sep + 1);
-            queueMessage("OBJ" + xObj + "," + yObj);
-          }
-          return;
+          queueMessage("OFF");
+
         }
 
-        else if (msg.startsWith("CSV_")) {
-          String intervalInput = msg.substring(4);
-          intervalInput.trim();
-          queueMessage("INT" + intervalInput);
-          return;
-        }
-        
-        // CHUNK_size
-        else if (msg.startsWith("CHUNK_")) {
-          String chunkSize = msg.substring(6);
-          chunkSize.trim();
-          queueMessage("CK" + chunkSize);
-          return;
+        else if(msg == "GO"){
+
+          queueMessage("GO");
+
         }
 
-        // STEP_size
-        else if (msg.startsWith("STEP_")) {
-          String stepSize = msg.substring(5);
-          stepSize.trim();
-          queueMessage("SET" + stepSize);
-          return;
+        else if(msg == "STOP"){
+
+          queueMessage("STP");
+
         }
 
-        else if (msg == "START_AUTO") queueMessage("AUTO");
-        else if (msg == "STOP_AUTO") queueMessage("STOPAUTO");
-        else if (msg == "PAUSE_AUTO") queueMessage("PAUSE");
-        else if (msg == "RESUME_AUTO") queueMessage("RESUME");
-        else if (msg == "REVERSE_AUTO") queueMessage("REVERSE");
-        else if (msg == "CLEAR_MAP") queueMessage("CLEAR");
-        else if (msg == "CLEAR_ALL") queueMessage("CLEARALL");
-        else if (msg == "RESET_ROVER") queueMessage("RES");
-        else if (msg == "PARTY_MODE") queueMessage("PARTY");
-
-        else if (msg == "LORA_SHORT") LoRaShort();
-        else if (msg == "LORA_MEDIUM") LoRaMid();
-        else if (msg == "LORA_LONG") LoRaLong();
-      } else {
-        Serial.printf("CLIENT_%u_ATTEMPTED_CMD\n", client_num);
       }
       break;
     }
 
     default:
-      break;
+    break;
+
   }
+
 }
 
 void LoRaShort() {
