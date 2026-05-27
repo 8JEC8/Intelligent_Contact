@@ -270,11 +270,23 @@ void loop() {
 // FACTOR DE POTENCIA — máquina de estados no bloqueante
 // =====================================================
 
-void calcularFP() {
+// Función auxiliar para ordenar un array (necesaria para la mediana)
+void ordenarArray(float arr[], int n) {
+  for (int i = 0; i < n - 1; i++) {
+    for (int j = i + 1; j < n; j++) {
+      if (arr[i] > arr[j]) {
+        float temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+      }
+    }
+  }
+}
 
+void calcularFP() {
   switch (fpState) {
 
-    // Esperar intervalo antes de iniciar nueva medición
+    // 1. Esperar intervalo antes de iniciar nueva medición
     case FP_IDLE:
       if (millis() - lastFPTime >= FP_INTERVAL) {
         fpOffsetV = 0.0;
@@ -284,7 +296,7 @@ void calcularFP() {
       }
       break;
 
-    // Calcular offset con 500 muestras (una por iteración de loop)
+    // 2. Calcular offset promedio
     case FP_OFFSET:
       if (fpSampleIdx < 500) {
         fpOffsetV += analogRead(PIN_VOLTAGE);
@@ -299,7 +311,7 @@ void calcularFP() {
       }
       break;
 
-    // Tomar N_FP muestras sincronizadas a fs_FP
+    // 3. Captura de muestras con Filtro Pasa-Bajas por Software incorporado
     case FP_SAMPLING:
       if (fpSampleIdx < N_FP) {
         if (micros() - fpLastSampleUs >= FP_SAMPLE_US) {
@@ -308,12 +320,24 @@ void calcularFP() {
           int rawV = analogRead(PIN_VOLTAGE);
           int rawI = analogRead(PIN_CURRENT);
 
-          muestrasVoltajeFP[fpSampleIdx] = rawV - fpOffsetV;
-
+          // Señales puras removiendo el offset continuo
+          float vLimpio = rawV - fpOffsetV;
+          
           float adcI = rawI - fpOffsetI;
           float voltSensor = (adcI * Vref) / ADCmax;
           float iSec = voltSensor / Rb;
-          muestrasCorrienteFP[fpSampleIdx] = Ki * Nct * iSec;
+          float iLimpio = Ki * Nct * iSec;
+
+          // --- FILTRO PASA-BAJAS DIGITAL (Suavizado exponencial - EMA) ---
+          // Alpha entre 0.1 y 0.3 filtra el ruido del ADC drásticamente sin desfasar demasiado la señal
+          const float alpha = 0.25; 
+          if (fpSampleIdx == 0) {
+            muestrasVoltajeFP[fpSampleIdx] = vLimpio;
+            muestrasCorrienteFP[fpSampleIdx] = iLimpio;
+          } else {
+            muestrasVoltajeFP[fpSampleIdx] = (alpha * vLimpio) + ((1.0 - alpha) * muestrasVoltajeFP[fpSampleIdx - 1]);
+            muestrasCorrienteFP[fpSampleIdx] = (alpha * iLimpio) + ((1.0 - alpha) * muestrasCorrienteFP[fpSampleIdx - 1]);
+          }
 
           fpSampleIdx++;
         }
@@ -322,9 +346,8 @@ void calcularFP() {
       }
       break;
 
-    // Calcular FP a partir de las muestras (no bloqueante, corre en un ciclo de loop)
+    // 4. Procesamiento estadístico robusto
     case FP_CALC: {
-      // Buscar cruce por cero ascendente — voltaje
       int ceroV = -1;
       for (int i = 1; i < N_FP; i++) {
         if (muestrasVoltajeFP[i - 1] < 0 && muestrasVoltajeFP[i] >= 0) {
@@ -333,7 +356,6 @@ void calcularFP() {
         }
       }
 
-      // Buscar cruce por cero ascendente — corriente
       int ceroI = -1;
       for (int i = 1; i < N_FP; i++) {
         if (muestrasCorrienteFP[i - 1] < 0 && muestrasCorrienteFP[i] >= 0) {
@@ -344,22 +366,34 @@ void calcularFP() {
 
       if (ceroV != -1 && ceroI != -1) {
         int diferenciaMuestras = (ceroI - ceroV);
-        float desfaseTiempo = (diferenciaMuestras / fs_FP)-0.00135;
+        
+        // Ajusta levemente el desfase fijo si notas que el filtro alfa añade un delay constante
+        float desfaseTiempo = (diferenciaMuestras / fs_FP) - 0.00135; 
         float angulo = (desfaseTiempo * 2.0 * PI * 60.0);
         float fpInstantaneo = abs(cos(angulo));
 
         if (fpInstantaneo > 1.0) fpInstantaneo = 1.0;
         if (fpInstantaneo < 0.0) fpInstantaneo = 0.0;
 
+        // Guardar en el buffer circular
         historialFP[indiceFP] = fpInstantaneo;
         indiceFP++;
         if (indiceFP >= NUM_FP) indiceFP = 0;
 
-        float sumaFP = 0;
-        for (int i = 0; i < NUM_FP; i++) sumaFP += historialFP[i];
-        factorPotencia = sumaFP / NUM_FP;
+        // --- FILTRO DE MEDIANA MÓVIL EN LUGAR DE PROMEDIO ---
+        // Copiamos el historial para no romper el buffer circular y lo ordenamos
+        float copiaHistorial[NUM_FP];
+        for (int i = 0; i < NUM_FP; i++) {
+          copiaHistorial[i] = historialFP[i];
+        }
+        ordenarArray(copiaHistorial, NUM_FP);
+
+        // Al ser 10 muestras (par), promediamos los dos valores centrales para obtener la mediana
+        factorPotencia = (copiaHistorial[NUM_FP / 2 - 1] + copiaHistorial[NUM_FP / 2]) / 2.0;
+
       } else {
-        factorPotencia = 0.0;
+        // Si hay una lectura perdida por ruido extremo, mantenemos el FP anterior en lugar de tumbarlo a 0 instantáneamente
+        // factorPotencia = factorPotencia; 
       }
 
       lastFPTime = millis();
@@ -368,7 +402,6 @@ void calcularFP() {
     }
   }
 }
-
 // =====================================================
 // TELEMETRÍA — FP reemplaza el 10000 placeholder
 // =====================================================
