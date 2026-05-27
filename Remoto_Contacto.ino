@@ -493,14 +493,7 @@ void handleRequest(String cmd) {
     LoRa.print(factorPotencia, 3);
     LoRa.endPacket();
   }
-/*
-  else if (cmd == "FASE") {
-    Serial.println("*Obtener con Sensor de V y I*");
-    LoRa.beginPacket();
-    LoRa.print("*Fase*");
-    LoRa.endPacket();
-  }
-*/
+
   else if (cmd == "SRA") {
     LoRa.setSpreadingFactor(7);
     LoRa.setSignalBandwidth(250E3);
