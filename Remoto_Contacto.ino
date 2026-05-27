@@ -18,7 +18,7 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 #define PIN_VOLTAGE 17
 #define SENSITIVITY 400.0f
-#define CALIBRATION_FACTOR 1.38
+#define CALIBRATION_FACTOR 1.08
 ZMPT101B voltageSensor(PIN_VOLTAGE, 60.0);
 
 #define PIN_CURRENT 18
@@ -53,6 +53,7 @@ const unsigned long CURRENT_SAMPLE_US =
 bool measuringOffset = true;
 
 float voltageSum = 0.0;
+float preVoltageValue=0.0;
 float voltageValue = 0.0;
 
 int sampleCount = 0;
@@ -84,6 +85,7 @@ float historialFP[NUM_FP] = {0};
 int indiceFP = 0;
 
 float factorPotencia = 0.0;
+float preFactorPotencia=0.0;
 
 // FP se recalcula cada FP_INTERVAL ms (no bloqueante)
 const unsigned long FP_INTERVAL = 125;
@@ -171,7 +173,14 @@ void loop() {
     sampleCount++;
 
     if (sampleCount >= NUM_MUESTRAS) {
-      voltageValue = voltageSum / NUM_MUESTRAS;
+      preVoltageValue = (voltageSum / NUM_MUESTRAS)*CALIBRATION_FACTOR;
+      if (preVoltageValue <= 20){
+        voltageValue=0;
+
+    }else{
+        voltageValue=preVoltageValue;
+
+        }
       voltageSum = 0;
       sampleCount = 0;
     }
@@ -376,12 +385,16 @@ String buildTelemetryCSV() {
   float realPower = 0.0;
   float reactivePower = 0.0;
 
+  if (voltageValue <= 20){
+        factorPotencia=0;
+    }
   if (voltageValue > 0.0 &&
       currentValue > 0.0 &&
       factorPotencia > 0.0) {
 
     // Apparent Power (VA)
     apparentPower = voltageValue * currentValue;
+
 
     // Safe local PF copy
     float pf = factorPotencia;
@@ -403,22 +416,22 @@ String buildTelemetryCSV() {
   String payload;
   payload.reserve(128);
 
-  payload += String(voltageValue, 3);
+  payload += String(voltageValue, 2);
   payload += ",";
 
-  payload += String(currentValue, 3);
+  payload += String(currentValue, 2);
   payload += ",";
 
-  payload += String(apparentPower, 3);
+  payload += String(apparentPower, 2);
   payload += ",";
 
-  payload += String(realPower, 3);
+  payload += String(realPower, 2);
   payload += ",";
 
-  payload += String(reactivePower, 3);
+  payload += String(reactivePower, 2);
   payload += ",";
 
-  payload += String(factorPotencia, 3);
+  payload += String(factorPotencia, 2);
 
   return payload;
 }
