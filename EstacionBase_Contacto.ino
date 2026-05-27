@@ -504,11 +504,8 @@ void onWebSocketEvent(
       if(msg == "REQUEST_CONTROL"){
 
         if(controllerClient == 255){
-
           controllerClient = client_num;
-
           broadcastControlState();
-
         }
 
         return;
@@ -521,11 +518,8 @@ void onWebSocketEvent(
       if(msg == "RELEASE_CONTROL"){
 
         if(client_num == controllerClient){
-
           controllerClient = 255;
-
           broadcastControlState();
-
         }
 
         return;
@@ -537,27 +531,19 @@ void onWebSocketEvent(
       if(client_num == controllerClient){
 
         if(msg == "ON"){
-
           queueMessage("ON");
-
         }
 
         else if(msg == "OFF"){
-
           queueMessage("OFF");
-
         }
 
         else if(msg == "GO"){
-
           queueMessage("GO");
-
         }
 
         else if(msg == "STOP"){
-
           queueMessage("STP");
-
         }
       }
       break;
@@ -582,8 +568,6 @@ void LoRaShort() {
   retryInterval = 100;
   ackTimeout = 500;
   currentRange = SHORT;
-  webSocket.broadcastTXT("CSVINT_1.5");
-  webSocket.broadcastTXT("CK_200");
 }
 
 void LoRaMid() {
@@ -598,8 +582,6 @@ void LoRaMid() {
   retryInterval = 300;
   ackTimeout = 1500;
   currentRange = MID;
-  webSocket.broadcastTXT("CSVINT_2.5");
-  webSocket.broadcastTXT("CK_128");
 }
 
 void LoRaLong() {
@@ -614,8 +596,6 @@ void LoRaLong() {
   retryInterval = 1500;
   ackTimeout = 6000;
   currentRange = LONG;
-  webSocket.broadcastTXT("CSVINT_5.0");
-  webSocket.broadcastTXT("CK_64");
 }
 
 void printCommandList() {
@@ -666,6 +646,5 @@ void watchdogTask(void *parameter) {
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
-
 
 }
