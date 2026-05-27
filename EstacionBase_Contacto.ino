@@ -291,6 +291,14 @@ void loop() {
           webSocket.broadcastTXT("RELAY_OFF");
         }
 
+        else if (received.startsWith("INFO_ON")) {
+          webSocket.broadcastTXT("READING_ON");
+        }
+    
+        else if (received.startsWith("INFO_OFF")) {
+          webSocket.broadcastTXT("READING_OFF");
+        }
+
       }
 
       // REINTENTAR mensaje en cola con Timeout
