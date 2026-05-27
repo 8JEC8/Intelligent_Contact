@@ -42,6 +42,35 @@ unsigned long lastChunkRequestTime = 0;   // Cuando el chunk se solicitó por ú
 
 float csvInt = 1.5;
 
+// ===== Sistema de validación de carga =====
+
+enum LoadType {
+  NONE,
+  FOCO,
+  VENTILADOR
+};
+
+LoadType selectedLoad = NONE;
+
+unsigned long loadValidTimer = 0;
+const unsigned long LOAD_TIMEOUT = 10000; // 10 segundos
+
+bool systemEnabled = true;
+
+// FOCO
+float focoCurrentMin = 0.4;
+float focoCurrentMax = 0.8;
+
+float focoPFMin = 0.90;
+float focoPFMax = 1.00;
+
+// VENTILADOR
+float ventCurrentMin = 0.05;
+float ventCurrentMax = 0.30;
+
+float ventPFMin = 0.40;
+float ventPFMax = 0.90;
+
 // Estados LoRa
 enum LoRaRange { SHORT, MID, LONG };
 LoRaRange currentRange = SHORT;  // Iniciar SHORT
@@ -222,54 +251,74 @@ void loop() {
     }
 
     else if (received.indexOf(',') != -1) {
+
       String webTelemetry = String(avgRssi) + "," + received;
       webSocket.broadcastTXT(webTelemetry);
+
+      // ===== EXTRAER DATOS =====
+
+    int firstComma = received.indexOf(',');
+    int secondComma = received.indexOf(',', firstComma + 1);
+    int lastComma = received.lastIndexOf(',');
+
+    // Corriente = segundo valor
+    float currentValue = received.substring(firstComma + 1, secondComma).toFloat();
+
+    // FP = último valor
+    float pfValue = received.substring(lastComma + 1).toFloat();
+
+    if (isExpectedLoad(currentValue, pfValue)) {
+
+        loadValidTimer = millis();
+
+    } else {
+
+        if (millis() - loadValidTimer > LOAD_TIMEOUT && currentValue!=0.0) {
+
+            systemEnabled = false;
+
+            queueMessage("OFF");
+
+            Serial.println("Carga incorrecta -> Sistema apagado");
+        }
     }
-
-    else if (received.startsWith("CONT_ON")) {
-      webSocket.broadcastTXT("RELAY_ON");
-    }
-
-    else if (received.startsWith("CONT_OFF")) {
-      webSocket.broadcastTXT("RELAY_OFF");
-    }
-
-    else if (received.startsWith("INFO_ON")) {
-      webSocket.broadcastTXT("READING_ON");
-    }
-
-    else if (received.startsWith("INFO_OFF")) {
-      webSocket.broadcastTXT("READING_OFF");
-    }
-
-  }
-
-  // REINTENTAR mensaje en cola con Timeout
-  if (msgQueued) {
-      // Mandar y reintentar
-      if (now - lastSendAttempt >= retryInterval && LoRa.beginPacket()) {
-          LoRa.print(msgToSend);
-          LoRa.endPacket();
-          lastSendAttempt = now;
-
-          // Comenzar timeout al mandar primera vez
-          if (msgStartTime == 0) msgStartTime = now;
-
-          Serial.println("SENT_EST_" + msgToSend);
-      }
-
-      // Timeout de no recibir ACK
-      if (msgStartTime > 0 && now - msgStartTime >= ackTimeout) {
-          Serial.println("MSG_TIMEOUT");
-          msgQueued = false;
-          msgToSend = "";
-          msgStartTime = 0;
-      }
-    }
-  
-  // Mensajes Serial
-  handleSerial();
 }
+        else if (received.startsWith("CONT_ON")) {
+          webSocket.broadcastTXT("RELAY_ON");
+        }
+
+        else if (received.startsWith("CONT_OFF")) {
+          webSocket.broadcastTXT("RELAY_OFF");
+        }
+
+      }
+
+      // REINTENTAR mensaje en cola con Timeout
+      if (msgQueued) {
+          // Mandar y reintentar
+          if (now - lastSendAttempt >= retryInterval && LoRa.beginPacket()) {
+              LoRa.print(msgToSend);
+              LoRa.endPacket();
+              lastSendAttempt = now;
+
+              // Comenzar timeout al mandar primera vez
+              if (msgStartTime == 0) msgStartTime = now;
+
+              Serial.println("SENT_EST_" + msgToSend);
+          }
+
+          // Timeout de no recibir ACK
+          if (msgStartTime > 0 && now - msgStartTime >= ackTimeout) {
+              Serial.println("MSG_TIMEOUT");
+              msgQueued = false;
+              msgToSend = "";
+              msgStartTime = 0;
+          }
+        }
+      
+      // Mensajes Serial
+      handleSerial();
+    }
 
 void handleSerial() {
   while (Serial.available()) {
@@ -317,6 +366,37 @@ void handleSerial() {
     else if (serialInput.equalsIgnoreCase(".START")) queueMessage("GO");
     else if (serialInput.equalsIgnoreCase(".STOP")) queueMessage("STP");
     else if (serialInput.equalsIgnoreCase(".RECONT")) queueMessage("RECONT");
+    else if (serialInput.equalsIgnoreCase(".FOCO")) {
+
+        Serial.println("Modo FOCO seleccionado");
+        selectedLoad = FOCO;
+        loadValidTimer = millis();
+
+        systemEnabled = true;
+
+
+    }
+
+    else if (serialInput.equalsIgnoreCase(".VENT")) {
+
+        Serial.println("Modo VENTILADOR seleccionado");
+        selectedLoad = VENTILADOR;
+        loadValidTimer = millis();
+
+        systemEnabled = true;
+
+
+    }
+    else if (serialInput.equalsIgnoreCase(".NONE")) {
+
+        Serial.println("Modo SIN VALIDACION seleccionado");
+
+        selectedLoad = NONE;
+
+        loadValidTimer = millis();
+
+        systemEnabled = true;
+    }
     else  {
       Serial.println("UNKNOWN_IGNORED");
     }
@@ -462,17 +542,15 @@ void onWebSocketEvent(
 
         else if(msg == "GO"){
 
-        queueMessage("GO");
+          queueMessage("GO");
 
-      }
+        }
 
         else if(msg == "STOP"){
 
-        queueMessage("STP");
+          queueMessage("STP");
 
-
-      }
-
+        }
       }
       break;
     }
@@ -545,6 +623,33 @@ void printCommandList() {
   Serial.println("    '.RECONT'        : Resetear Contacto");
 }
 
+bool isExpectedLoad(float current, float pf) {
+
+switch(selectedLoad) {
+
+    case NONE: 
+        return true;
+    case FOCO:
+      return (
+        current >= focoCurrentMin &&
+        current <= focoCurrentMax &&
+        pf >= focoPFMin &&
+        pf <= focoPFMax
+      );
+
+    case VENTILADOR:
+      return (
+        current >= ventCurrentMin &&
+        current <= ventCurrentMax &&
+        pf >= ventPFMin &&
+        pf <= ventPFMax
+      );
+
+    default:
+      return true;
+    }
+}
+
 void watchdogTask(void *parameter) {
   esp_task_wdt_add(NULL);
   Serial.println("WATCHDOG_TASK_ENABLED");
@@ -553,4 +658,6 @@ void watchdogTask(void *parameter) {
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
+
+
 }
