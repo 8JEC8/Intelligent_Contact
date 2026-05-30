@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>Panel Contacto Inteligente</title>
+
+<link rel="stylesheet" href="/style.css">
+
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="header">
+
+<h1>
+Panel de Control Contacto Inteligente
+</h1>
+
+</div>
+
+<div class="main-grid">
+
+    <!-- ================================================= -->
+    <!-- COLUMNA IZQUIERDA -->
+    <!-- ================================================= -->
+
+    <div class="left-column">
+
+        <!-- DATOS -->
+        <div class="panel data-panel">
+
+            <h2>Datos Eléctricos</h2>
+
+            <div class="data-box">
+                <span class="data-label">RSSI</span>
+                <span id="rssi-value"
+                class="data-value rssi-value">
+                --- dBm
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">Voltaje</span>
+                <span id="voltage-value"
+                class="data-value">
+                --- V
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">Corriente</span>
+                <span id="current-value"
+                class="data-value">
+                --- A
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">Potencia Aparente</span>
+                <span id="apparent-power-value"
+                class="data-value">
+                --- VA
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">Potencia</span>
+                <span id="power-value"
+                class="data-value">
+                --- W
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">Potencia Reactiva</span>
+                <span id="reactive-power-value"
+                class="data-value">
+                --- VAR
+                </span>
+            </div>
+
+            <div class="data-box">
+                <span class="data-label">FP</span>
+                <span id="fp-value"
+                class="data-value">
+                ---
+                </span>
+            </div>
+
+        </div>
+
+        <!-- CONTROL + ESTADOS -->
+        <div class="bottom-left">
+
+            <!-- CONTROL -->
+            <div class="panel control-panel">
+
+                <h2>Control Principal</h2>
+
+                <div class="button-grid">
+
+                    <button id="btn-on" class="btn-on">ON</button>
+                    <button id="btn-off" class="btn-off">OFF</button>
+                    <button id="btn-go" class="btn-go">GO</button>
+                    <button id="btn-stop" class="btn-stop">STOP</button>
+
+                    <button id="accept-control"
+                    class="btn-control-accept">
+
+                    ACEPTAR CONTROL
+
+                    </button>
+
+                    <button id="release-control"
+                    class="btn-control-release">
+
+                    RECHAZAR CONTROL
+
+                    </button>
+
+                </div>
+
+            </div>
+
+            <!-- ESTADOS -->
+            <div class="panel status-panel">
+
+                <h2>Estados</h2>
+
+                <div class="relay-box">
+
+                    <h3>Relevador</h3>
+
+                    <div id="relay-indicator"
+                    class="relay-indicator relay-off">
+
+                    OFF
+
+                    </div>
+
+                </div>
+
+                <br>
+
+                <div class="relay-box">
+
+                    <h3>Lectura</h3>
+
+                    <div id="reading-indicator"
+                    class="relay-indicator relay-off">
+
+                    OFF
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- ================================================= -->
+    <!-- COLUMNA DERECHA -->
+    <!-- ================================================= -->
+
+    <div class="right-column">
+
+        <!-- GRAFICAS -->
+        <div class="panel graph-panel">
+
+            <h2>Visualización de Señales</h2>
+
+            <div class="graphs">
+
+                <div class="graph-box">
+                    <div class="graph-title">Voltaje</div>
+                </div>
+
+                <div class="graph-box">
+                    <div class="graph-title">Corriente</div>
+                </div>
+
+                <div class="graph-box">
+                    <div class="graph-title">FP</div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- LOAD LIST -->
+        <div class="panel load-list">
+
+            <h2>Load List</h2>
+
+            <div class="load-list-container">
+
+                <select id="load-select">
+
+                    <option>
+                    Selecciona una carga
+                    </option>
+
+                    <option>
+                    Motor Monofásico
+                    </option>
+
+                    <option>
+                    Lámpara LED
+                    </option>
+
+                    <option>
+                    Resistencia
+                    </option>
+
+                    <option>
+                    Compresor
+                    </option>
+
+                    <option>
+                    Bomba
+                    </option>
+
+                    <option>
+                    Ventilador
+                    </option>
+
+                </select>
+
+                <div class="load-info">
+
+                    <p>
+                    <strong>Carga actual:</strong>
+                    <span id="current-load">
+                    Ninguna
+                    </span>
+                    </p>
+
+                    <p>
+                    <strong>Estado:</strong>
+                    <span id="load-status">
+                    Desconectado
+                    </span>
+                    </p>
+
+                    <p>
+                    <strong>Potencia estimada:</strong>
+                    <span id="estimated-power">
+                    --- W
+                    </span>
+                    </p>
+
+                    <p><strong>Descripción:</strong></p>
+
+                    <p id="load-description">
+                    (Información de la carga)
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script src="/script.js"></script>
+
+</body>
+</html>
