@@ -10,7 +10,7 @@ content="width=device-width, initial-scale=1.0">
 
 <title>Panel Contacto Inteligente</title>
 
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="style.css">
 
 </head>
 
@@ -183,15 +183,33 @@ Panel de Control Contacto Inteligente
             <div class="graphs">
 
                 <div class="graph-box">
-                    <div class="graph-title">Voltaje</div>
+
+                    <div class="graph-title">
+                        Voltaje
+                    </div>
+
+                    <canvas id="voltageChart"></canvas>
+
                 </div>
 
                 <div class="graph-box">
-                    <div class="graph-title">Corriente</div>
+
+                    <div class="graph-title">
+                        Corriente
+                    </div>
+
+                    <canvas id="currentChart"></canvas>
+
                 </div>
 
                 <div class="graph-box">
-                    <div class="graph-title">FP</div>
+
+                    <div class="graph-title">
+                        FP
+                    </div>
+
+                    <canvas id="fpChart"></canvas>
+
                 </div>
 
             </div>
@@ -207,31 +225,15 @@ Panel de Control Contacto Inteligente
 
                 <select id="load-select">
 
-                    <option>
+                    <option value="">
                     Selecciona una carga
                     </option>
 
-                    <option>
-                    Motor Monofásico
+                    <option value="foco">
+                    Foco
                     </option>
 
-                    <option>
-                    Lámpara LED
-                    </option>
-
-                    <option>
-                    Resistencia
-                    </option>
-
-                    <option>
-                    Compresor
-                    </option>
-
-                    <option>
-                    Bomba
-                    </option>
-
-                    <option>
+                    <option value="ventilador">
                     Ventilador
                     </option>
 
@@ -247,13 +249,6 @@ Panel de Control Contacto Inteligente
                     </p>
 
                     <p>
-                    <strong>Estado:</strong>
-                    <span id="load-status">
-                    Desconectado
-                    </span>
-                    </p>
-
-                    <p>
                     <strong>Potencia estimada:</strong>
                     <span id="estimated-power">
                     --- W
@@ -263,10 +258,43 @@ Panel de Control Contacto Inteligente
                     <p><strong>Descripción:</strong></p>
 
                     <p id="load-description">
-                    (Información de la carga)
+                    Selecciona una carga de la lista.
                     </p>
 
                 </div>
+
+            </div>
+
+        </div>
+
+        <!-- CONFIGURACION LORA -->
+
+        <div class="panel lora-panel">
+
+            <h2>Configuración LoRa</h2>
+
+            <div class="lora-buttons">
+
+                <button id="btn-lora-short"
+                class="btn-lora-short">
+
+                Corto Alcance
+
+                </button>
+
+                <button id="btn-lora-mid"
+                class="btn-lora-mid">
+
+                Medio Alcance
+
+                </button>
+
+                <button id="btn-lora-long"
+                class="btn-lora-long">
+
+                Largo Alcance
+
+                </button>
 
             </div>
 
@@ -276,7 +304,8 @@ Panel de Control Contacto Inteligente
 
 </div>
 
-<script src="/script.js"></script>
+<script src="chart.js"></script>
+<script src="script.js"></script>
 
 </body>
 </html>
