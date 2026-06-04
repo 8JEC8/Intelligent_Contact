@@ -1,408 +1,542 @@
 /* ===================================================== */
-/* GENERAL */
+/* WEBSOCKET */
 /* ===================================================== */
 
-*{
-  margin:0;
-  padding:0;
-  box-sizing:border-box;
-  font-family:Arial, Helvetica, sans-serif;
-}
+const ws =
+new WebSocket(`ws://${window.location.hostname}:81`);
 
-body{
-  background:#0f172a;
-  color:white;
-  min-height:100vh;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  padding:30px;
-}
+let myClientId = null;
 
-.container{
-  width:1400px;
-  min-height:1250px;
-  background:#111827;
-  border-radius:20px;
-  padding:25px;
-  border:2px solid #334155;
-  box-shadow:0px 0px 25px rgba(0,0,0,0.5);
-}
+let currentController = 255;
 
-/* ===================================================== */
-/* HEADER */
-/* ===================================================== */
+const MAX_POINTS = 20;
 
-.header{
-  width:100%;
-  height:70px;
-  background:#1e293b;
-  border-radius:15px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  margin-bottom:20px;
-  border:1px solid #334155;
-}
+let voltageData = [];
+let currentData = [];
+let fpData = [];
 
-.header h1{
-  font-size:32px;
-  letter-spacing:2px;
-}
+let labels = [];
 
-/* ===================================================== */
-/* GRID */
-/* ===================================================== */
+const voltageChart = new Chart(
+document.getElementById("voltageChart"),
+{
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: 'Voltaje',
+            data: voltageData,
+            borderColor: '#22c55e',
+            tension: 0.3,
+            pointRadius:0,
+            borderWidth:2,
+        }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:false,
+      scales:{
+          x:{
+              display:false
+          },
+          y:{
+              min:100,
+              max:140,
+              ticks:{
+                  stepSize:10
+              }
+          }
+      }
+  }
+});
 
-.main-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:20px;
-  align-items:start;
-}
+const currentChart = new Chart(
+document.getElementById("currentChart"),
+{
+    type:'line',
+    data:{
+        labels:labels,
+        datasets:[{
+            label:'Corriente',
+            data:currentData,
+            borderColor:'#3b82f6',
+            tension:0.3,
+            pointRadius:0,
+            borderWidth:2,
+        }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:false,
+      scales:{
+          x:{
+              display:false
+          },
+          y:{
+              min:0,
+              max:1,
+              ticks:{
+                  stepSize:0.1
+              }
+          }
+      }
+  }
+});
 
-.left-column,
-.right-column{
-  display:flex;
-  flex-direction:column;
-  gap:20px;
-}
+const fpChart = new Chart(
+document.getElementById("fpChart"),
+{
+    type:'line',
+    data:{
+        labels:labels,
+        datasets:[{
+            label:'FP',
+            data:fpData,
+            borderColor:'#f59e0b',
+            tension:0.3,
+            pointRadius:0,
+            borderWidth:2,
+        }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:false,
+      scales:{
+          x:{
+              display:false
+          },
+          y:{
+              min:0,
+              max:1,
+              ticks:{
+                  stepSize:0.1
+              }
+          }
+      }
+  }
+});
 
-.panel{
-  background:#1e293b;
-  border-radius:18px;
-  border:1px solid #334155;
-  padding:20px;
-}
+function updateCharts(voltage,current,fp){
 
-/* ===================================================== */
-/* DATOS */
-/* ===================================================== */
+    const timestamp =
+    new Date().toLocaleTimeString();
 
-.data-panel h2{
-  margin-bottom:20px;
-}
+    labels.push(timestamp);
 
-.data-box{
-  background:#0f172a;
-  border-radius:15px;
-  padding:18px;
-  margin-bottom:15px;
-  border:1px solid #334155;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
+    voltageData.push(voltage);
+    currentData.push(current);
+    fpData.push(fp);
 
-.data-label{
-  font-size:20px;
-}
+    if(labels.length > MAX_POINTS){
 
-.data-value{
-  font-size:24px;
-  color:#22c55e;
-  font-weight:bold;
-}
+        labels.shift();
 
-.rssi-value{
-  color:#f59e0b;
-}
+        voltageData.shift();
+        currentData.shift();
+        fpData.shift();
 
-/* ===================================================== */
-/* GRAFICAS */
-/* ===================================================== */
+    }
 
-.graph-panel h2{
-  margin-bottom:20px;
-}
+    voltageChart.update('none');
+    currentChart.update('none');
+    fpChart.update('none');
 
-.graphs{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:12px;
-}
-
-.graph-box{
-  background:#0f172a;
-  border-radius:15px;
-  border:1px solid #334155;
-  padding:15px;
-
-  display:flex;
-  flex-direction:column;
-
-  min-height:180px;
-}
-
-.graph-title{
-  font-size:18px;
-  color:#e2e8f0;
-  text-align:center;
-  margin-bottom:10px;
-}
-
-.graph-box canvas{
-  width:100% !important;
-  height:150px !important;
-}
-
-.graph-title{
-  font-size:22px;
-  color:#e2e8f0;
 }
 
 /* ===================================================== */
-/* ZONA INFERIOR */
+/* ENVIAR */
 /* ===================================================== */
 
-.bottom-left{
-  display:grid;
-  grid-template-columns:390px 240px 1fr;
-  gap:20px;
-  align-items:start;
-}
+function sendCommand(cmd){
 
-.status-panel{
-  width:100%;
-}
+  if(ws.readyState === WebSocket.OPEN){
 
-.status-panel h2{
-  margin-bottom:17px;
-}
+    ws.send(cmd);
 
+  }
 
-/* ===================================================== */
-/* CONTROL */
-/* ===================================================== */
-
-.control-panel{
-  flex:1;
-}
-
-.control-panel h2{
-  margin-bottom:20px;
-}
-
-.button-grid{
-  display:grid;
-  grid-template-columns:repeat(2,1fr);
-  gap:20px;
-  margin-top:25px;
-}
-
-button{
-  height:90px;
-  border:none;
-  border-radius:15px;
-  font-size:24px;
-  font-weight:bold;
-  cursor:pointer;
-  transition:0.25s;
-  color:white;
-}
-
-button:hover{
-  transform:scale(1.05);
-}
-
-.btn-on{
-  background:#16a34a;
-}
-
-.btn-off{
-  background:#dc2626;
-}
-
-.btn-go{
-  background:#2563eb;
-}
-
-.btn-stop{
-  background:#e7a303;
-  color:black;
-}
-
-.btn-control-accept{
-  background:#16a34a;
-}
-
-.btn-control-release{
-  background:#dc2626;
 }
 
 /* ===================================================== */
-/* ESTADOS */
+/* WEBSOCKET OPEN */
 /* ===================================================== */
 
-.status-panel{
-  width:260px;
-  height: 300px;
-  background:#1e293b;
-  border-radius:18px;
-  border:1px solid #334155;
-  padding:20px;
+ws.onopen = () => {
+
+  console.log("WEBSOCKET CONNECTED");
+
+};
+
+/* ===================================================== */
+/* MENSAJES */
+/* ===================================================== */
+
+ws.onmessage = (event) => {
+
+  const msg = event.data;
+
+  /* ========================= */
+  /* TELEMETRIA */
+  /* ========================= */
+
+  if(msg.includes(",")){
+
+    const values = msg.split(",");
+
+    if(values.length == 7){
+
+      document.getElementById("rssi-value")
+      .innerText =
+      parseFloat(values[0]).toFixed(2) + " dBm";
+
+      document.getElementById("voltage-value")
+      .innerText =
+      parseFloat(values[1]).toFixed(2) + " V";
+
+      document.getElementById("current-value")
+      .innerText =
+      parseFloat(values[2]).toFixed(2) + " A";
+
+      document.getElementById("apparent-power-value")
+      .innerText =
+      parseFloat(values[3]).toFixed(2) + " VA";
+
+      document.getElementById("power-value")
+      .innerText =
+      parseFloat(values[4]).toFixed(2) + " W";
+
+      document.getElementById("reactive-power-value")
+      .innerText =
+      parseFloat(values[5]).toFixed(2) + " VAR";
+
+      document.getElementById("fp-value")
+      .innerText =
+      parseFloat(values[6]).toFixed(2);
+
+      updateCharts(
+          parseFloat(values[1]),
+          parseFloat(values[2]),
+          parseFloat(values[6])
+      );
+
+    }
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* RELAY ON */
+  /* ========================= */
+
+  if(msg == "RELAY_ON"){
+
+    const indicator =
+    document.getElementById("relay-indicator");
+
+    indicator.innerText = "ON";
+
+    indicator.classList.remove("relay-off");
+
+    indicator.classList.add("relay-on");
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* RELAY OFF */
+  /* ========================= */
+
+  if(msg == "RELAY_OFF"){
+
+    const indicator =
+    document.getElementById("relay-indicator");
+
+    indicator.innerText = "OFF";
+
+    indicator.classList.remove("relay-on");
+
+    indicator.classList.add("relay-off");
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* LECTURA ON */
+  /* ========================= */
+
+  if(msg == "READING_ON"){
+
+    const indicator =
+    document.getElementById("reading-indicator");
+
+    indicator.innerText = "ON";
+
+    indicator.classList.remove("relay-off");
+
+    indicator.classList.add("relay-on");
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* LECTURA OFF */
+  /* ========================= */
+
+  if(msg == "READING_OFF"){
+
+    const indicator =
+    document.getElementById("reading-indicator");
+
+    indicator.innerText = "OFF";
+
+    indicator.classList.remove("relay-on");
+
+    indicator.classList.add("relay-off");
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* ID */
+  /* ========================= */
+
+  if(msg.startsWith("ASSIGN_ID_")){
+
+    myClientId =
+    parseInt(msg.split("_")[2]);
+
+    return;
+
+  }
+
+  /* ========================= */
+  /* CONTROL */
+  /* ========================= */
+
+  if(msg.startsWith("CTRL_")){
+
+    currentController =
+    parseInt(msg.split("_")[1]);
+
+    updateControlButtons();
+
+    return;
+
+  }
+
+};
+
+/* ===================================================== */
+/* CONTROL BOTONES */
+/* ===================================================== */
+
+function updateControlButtons(){
+
+  const acceptBtn =
+  document.getElementById("accept-control");
+
+  const releaseBtn =
+  document.getElementById("release-control");
+
+  if(currentController == myClientId){
+
+    acceptBtn.disabled = true;
+    releaseBtn.disabled = false;
+
+    acceptBtn.style.opacity = "0.5";
+    releaseBtn.style.opacity = "1";
+
+  }
+
+  else if(currentController == 255){
+
+    acceptBtn.disabled = false;
+    releaseBtn.disabled = true;
+
+    acceptBtn.style.opacity = "1";
+    releaseBtn.style.opacity = "0.5";
+
+  }
+
+  else{
+
+    acceptBtn.disabled = true;
+    releaseBtn.disabled = true;
+
+    acceptBtn.style.opacity = "0.5";
+    releaseBtn.style.opacity = "0.5";
+
+  }
+
 }
 
-.status-title{
-  font-size:26px;
-  margin-bottom:20px;
-}
+/* ===================================================== */
+/* BOTONES */
+/* ===================================================== */
 
-.status-label{
-  font-size:22px;
-  margin-bottom:10px;
-  margin-top:20px;
-}
+document.getElementById("accept-control")
+.addEventListener("click", () => {
 
-.relay-indicator{
-  width:100%;
-  height:60px;
-  border-radius:15px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  font-size:30px;
-  font-weight:bold;
-  color:white;
-  background:#dc2626;
-}
+  sendCommand("REQUEST_CONTROL");
 
-.relay-on{
-  background:#16a34a;
-}
+});
 
-.relay-off{
-  background:#dc2626;
-}
+document.getElementById("release-control")
+.addEventListener("click", () => {
 
-.relay-box h3{
-  margin-bottom:12px;
-  font-size:24px;
-}
+  sendCommand("RELEASE_CONTROL");
+
+});
+
+document.getElementById("btn-on")
+.addEventListener("click", () => {
+
+  if(currentController == myClientId){
+
+    sendCommand("ON");
+
+  }
+
+});
+
+document.getElementById("btn-off")
+.addEventListener("click", () => {
+
+  if(currentController == myClientId){
+
+    sendCommand("OFF");
+
+  }
+
+});
+
+document.getElementById("btn-go")
+.addEventListener("click", () => {
+
+  if(currentController == myClientId){
+
+    sendCommand("GO");
+
+  }
+
+});
+
+document.getElementById("btn-stop")
+.addEventListener("click", () => {
+
+  if(currentController == myClientId){
+
+    sendCommand("STOP");
+
+  }
+
+});
+
+updateControlButtons();
+
+/* ===================================================== */
+/* BOTONES LORA */
+/* ===================================================== */
+
+document.getElementById("btn-lora-short")
+.addEventListener("click", () => {
+
+    sendCommand("LORA_SHORT");
+
+});
+
+document.getElementById("btn-lora-mid")
+.addEventListener("click", () => {
+
+    sendCommand("LORA_MID");
+
+});
+
+document.getElementById("btn-lora-long")
+.addEventListener("click", () => {
+
+    sendCommand("LORA_LONG");
+
+});
 
 /* ===================================================== */
 /* LOAD LIST */
 /* ===================================================== */
 
-.load-list{
-  grid-column:1 / span 2;
-}
+const loadSelect =
+document.getElementById("load-select");
 
-.load-list h2{
-  margin-bottom:20px;
-  align-self:start;
-}
+loadSelect.addEventListener("change", () => {
 
-.load-list-container{
-  display:flex;
-  flex-direction:column;
-  gap:20px;
-}
+    const selected =
+    loadSelect.value;
 
-select{
-  width:100%;
-  height:45px;
-  border-radius:12px;
-  border:none;
-  padding:10px;
-  font-size:15px;
-  background:#0f172a;
-  color:white;
-  border:1px solid #334155;
-}
+    const currentLoad =
+    document.getElementById("current-load");
 
-.load-info{
-  background:#0f172a;
-  border-radius:15px;
-  border:1px solid #334155;
-  padding:20px;
-  color:#cbd5e1;
-  line-height:1.8;
-  font-size:17px;
-  min-height:280px;
-}
+    const estimatedPower =
+    document.getElementById("estimated-power");
 
-/* ===================================================== */
-/* RESPONSIVE */
-/* ===================================================== */
+    const description =
+    document.getElementById("load-description");
 
-@media(max-width:1200px){
+    /* ========================= */
+    /* FOCO */
+    /* ========================= */
 
-  .main-grid{
-    grid-template-columns:1fr;
-  }
+    if(selected === "foco"){
 
-  .load-list{
-    grid-column:auto;
-  }
+        currentLoad.innerText =
+        "Foco";
 
-  .bottom-left{
-    flex-direction:column;
-  }
+        estimatedPower.innerText =
+        "72 W";
 
-  .status-panel{
-    width:100%;
-  }
+        description.innerText =
+        "Foco incandescente de uso doméstico (resistivo)";
 
-}
+    }
 
-@media(max-width:768px){
+    /* ========================= */
+    /* VENTILADOR */
+    /* ========================= */
 
-  body{
-    padding:10px;
-  }
+    else if(selected === "ventilador"){
 
-  .container{
-    width:100%;
-    padding:15px;
-  }
+        currentLoad.innerText =
+        "Ventilador";
 
-  .graphs{
-    grid-template-columns:1fr;
-  }
+        estimatedPower.innerText =
+        "21 W";
 
-  button{
-    height:70px;
-    font-size:20px;
-  }
+        description.innerText =
+        "Ventilador pequeño doméstico para uso personal";
 
-}
+    }
 
-/* ===================================================== */
-/* LORA */
-/* ===================================================== */
+    /* ========================= */
+    /* NINGUNO */
+    /* ========================= */
 
-.lora-panel{
-  margin-top:20px;
-}
+    else{
 
-.lora-panel h2{
-  margin-bottom:20px;
-}
+        currentLoad.innerText =
+        "Ninguna";
 
-.lora-buttons{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:20px;
-}
+        estimatedPower.innerText =
+        "--- W";
 
-.btn-lora-short{
-  background:#585858;
-}
+        description.innerText =
+        "Selecciona una carga de la lista.";
 
-.btn-lora-mid{
-  background:#585858;
-}
+    }
 
-.btn-lora-long{
-  background:#585858;
-}
-
-.btn-lora-short,
-.btn-lora-mid,
-.btn-lora-long{
-
-  height:80px;
-  font-size:22px;   
-
-}
+});
