@@ -11,9 +11,6 @@
 #define WDT_TIMEOUT 10   // seconds
 
 //////////////////////////////////////////////////////////////////////////////////////////////////// HTML embebido
-const char webpage[] PROGMEM = R"rawliteral(
-
-)rawliteral";
 
 const char* ssid = "CI_Cavs";
 const char* password = "12345678";
@@ -47,29 +44,48 @@ float csvInt = 1.5;
 enum LoadType {
   NONE,
   FOCO,
-  VENTILADOR
+  VENTILADOR,
+  FOCO2,
+  CUSTOM
 };
 
 LoadType selectedLoad = NONE;
 
 unsigned long loadValidTimer = 0;
-const unsigned long LOAD_TIMEOUT = 10000; // 10 segundos
+unsigned long LOAD_TIMEOUT = 7000; // 15 segundos
 
 bool systemEnabled = true;
 
 // FOCO
-float focoCurrentMin = 0.4;
-float focoCurrentMax = 0.8;
+float focoCurrentMin = 0.5;
+float focoCurrentMax = 0.7;
 
 float focoPFMin = 0.90;
 float focoPFMax = 1.00;
 
 // VENTILADOR
-float ventCurrentMin = 0.05;
-float ventCurrentMax = 0.30;
+float ventCurrentMin = 0.1;
+float ventCurrentMax = 0.26;
 
-float ventPFMin = 0.40;
-float ventPFMax = 0.90;
+float ventPFMin = 0.64;
+float ventPFMax = 0.75;
+
+//  FOCO 2
+float foco2CurrentMin=0.28;
+float foco2CurrentMax=0.38;
+
+float foco2PFMin=0.9;
+float foco2PFMax=1.00;
+
+// Carga personalizada
+float customCurrentMin=0.0;
+float customCurrentMax=0.0;
+
+float customPFMin=0.0;
+float customPFMax=0.0;
+
+float customCurrent=0.0;
+float customPF=0.0;
 
 // Estados LoRa
 enum LoRaRange { SHORT, MID, LONG };
@@ -92,10 +108,11 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
-  if (!LittleFS.begin()) {
-    Serial.println("ERR_LittleFS");
+    if(!LittleFS.begin(true)){
+    Serial.println("LittleFS ERROR");
+    return;
   }
-  
+
   const esp_task_wdt_config_t wdt_config = {
         .timeout_ms = WDT_TIMEOUT * 1000,
         .idle_core_mask = (1 << 0) | (1 << 1),
@@ -124,9 +141,21 @@ void setup() {
   Serial.println(IP);
 
   server.on("/", HTTP_GET, []() {
-    server.send_P(200, "text/html", webpage);
+
+    File file = LittleFS.open("/index.html", "r");
+
+    if(!file){
+        server.send(404, "text/plain", "index.html NOT FOUND");
+        return;
+    }
+
+    server.streamFile(file, "text/html");
+
+    file.close();
+
   });
 
+  server.serveStatic("/", LittleFS, "/");
 
   /* SERVIDOR */
 
@@ -210,12 +239,9 @@ void loop() {
           else if (ackFor == "LRA") LoRaLong();
       }
 
-      if (ackFor.startsWith("INT")) {
-        String lenINT = ackFor.substring(3);
-        float newInt = lenINT.toFloat();
-        if (newInt > 0) csvInt = newInt;
-        Serial.println("  SET_CSV_INTERVAL_" + String(csvInt));
-        webSocket.broadcastTXT("CSVINT_" + String(csvInt));
+      if (ackFor.startsWith("ON")) {
+        loadValidTimer = millis();
+        systemEnabled = true;
       }
     }
 
@@ -331,6 +357,7 @@ void loop() {
 void handleSerial() {
   while (Serial.available()) {
     String serialInput = Serial.readStringUntil('\n');
+    serialInput.toUpperCase();
     serialInput.trim();
 
     if (serialInput.length() == 0) continue;
@@ -395,6 +422,17 @@ void handleSerial() {
 
 
     }
+
+    else if (serialInput.equalsIgnoreCase(".FOCO2")) {
+
+        Serial.println("Modo FOCO2 seleccionado");
+        selectedLoad = FOCO2;
+        loadValidTimer = millis();
+
+        systemEnabled = true;
+
+
+    }
     else if (serialInput.equalsIgnoreCase(".NONE")) {
 
         Serial.println("Modo SIN VALIDACION seleccionado");
@@ -404,6 +442,39 @@ void handleSerial() {
         loadValidTimer = millis();
 
         systemEnabled = true;
+    }
+    else if (serialInput.startsWith(".CUSTOM")){
+        Serial.println("Modo CUSTOM seleccionado");
+        float localCurrent=0.0;
+        float localPF=0.0;    
+
+        int firstSpace=serialInput.indexOf(' ');
+        int secondSpace = serialInput.indexOf(' ',firstSpace+1);
+
+        if (firstSpace > 0 && secondSpace >firstSpace){
+            String currentString=serialInput.substring(firstSpace+1,secondSpace);
+            String pfString=serialInput.substring(secondSpace +1);
+            
+            localCurrent= currentString.toFloat();
+            localPF= pfString.toFloat();
+
+             
+            customCurrentMin=localCurrent-0.10;
+            customCurrentMax=localCurrent+0.10;
+            customPFMin=localPF-0.3;
+            customPFMax=localPF+0.3;
+
+        
+
+            Serial.println("Corriente = " + String(localCurrent)+ "  FP = "+String(localPF));
+            
+            selectedLoad=CUSTOM;      
+            loadValidTimer=millis();
+            systemEnabled=true;
+        }
+        else{
+            Serial.println("Formato invalido. Use .CUSTOM <corriente> <fp>");
+        }
     }
     else  {
       Serial.println("UNKNOWN_IGNORED");
@@ -449,6 +520,27 @@ void onWebSocketEvent(
       webSocket.sendTXT(
       client_num,
       "CTRL_" + String(controllerClient));
+
+      switch(currentRange){
+
+          case SHORT:
+              webSocket.sendTXT(
+              client_num,
+              "LORA_MODE_SHORT");
+              break;
+
+          case MID:
+              webSocket.sendTXT(
+              client_num,
+              "LORA_MODE_MID");
+              break;
+
+          case LONG:
+              webSocket.sendTXT(
+              client_num,
+              "LORA_MODE_LONG");
+              break;
+      }
 
       /* ========================= */
       /* PRIMER CLIENTE */
@@ -545,6 +637,85 @@ void onWebSocketEvent(
         else if(msg == "STOP"){
           queueMessage("STP");
         }
+        else if(msg== "LORA_SHORT"){
+            LoRaShort();
+        }
+        else if(msg=="LORA_MID"){
+            LoRaMid();
+        }
+        else if(msg=="LORA_LONG"){
+            LoRaLong();
+        }
+
+        else if(msg == "LOAD_FOCO"){
+
+            selectedLoad = FOCO;
+            loadValidTimer = millis();
+            systemEnabled = true;
+
+            Serial.println("WEB -> FOCO");
+        }
+
+        else if(msg == "LOAD_VENT"){
+
+            selectedLoad = VENTILADOR;
+            loadValidTimer = millis();
+            systemEnabled = true;
+
+            Serial.println("WEB -> VENTILADOR");
+        }
+
+        else if(msg == "LOAD_FOCO2"){
+
+            selectedLoad = FOCO2;
+            loadValidTimer = millis();
+            systemEnabled = true;
+
+            Serial.println("WEB -> FOCO2");
+        }
+
+        else if(msg == "LOAD_NONE"){
+
+            selectedLoad = NONE;
+            loadValidTimer = millis();
+            systemEnabled = true;
+
+            Serial.println("WEB -> NONE");
+        }
+
+        else if(msg.startsWith("LOAD_CUSTOM_")){
+
+            int firstUnderscore =
+            msg.indexOf('_', 12);
+
+            String currentStr =
+            msg.substring(12, firstUnderscore);
+
+            String pfStr =
+            msg.substring(firstUnderscore + 1);
+
+            float current =
+            currentStr.toFloat();
+
+            float pf =
+            pfStr.toFloat();
+
+            customCurrentMin = current - 0.10;
+            customCurrentMax = current + 0.10;
+
+            customPFMin = pf - 0.30;
+            customPFMax = pf + 0.30;
+
+            selectedLoad = CUSTOM;
+
+            loadValidTimer = millis();
+
+            systemEnabled = true;
+
+            Serial.println(
+            "WEB -> CUSTOM");
+        }
+
       }
       break;
     }
@@ -568,6 +739,8 @@ void LoRaShort() {
   retryInterval = 100;
   ackTimeout = 500;
   currentRange = SHORT;
+  LOAD_TIMEOUT = 6000;
+  webSocket.broadcastTXT("LORA_MODE_SHORT");
 }
 
 void LoRaMid() {
@@ -582,6 +755,8 @@ void LoRaMid() {
   retryInterval = 300;
   ackTimeout = 1500;
   currentRange = MID;
+  LOAD_TIMEOUT = 8000;
+  webSocket.broadcastTXT("LORA_MODE_MID");
 }
 
 void LoRaLong() {
@@ -596,6 +771,8 @@ void LoRaLong() {
   retryInterval = 1500;
   ackTimeout = 6000;
   currentRange = LONG;
+  LOAD_TIMEOUT = 10000;
+  webSocket.broadcastTXT("LORA_MODE_LONG");
 }
 
 void printCommandList() {
@@ -632,7 +809,20 @@ switch(selectedLoad) {
         pf >= ventPFMin &&
         pf <= ventPFMax
       );
-
+    case FOCO2:
+        return (
+        current >= foco2CurrentMin &&
+        current <= foco2CurrentMax &&
+        pf >= foco2PFMin &&
+        pf <= foco2PFMax
+       );
+    case CUSTOM:
+        return (
+        current >= customCurrentMin &&
+        current <= customCurrentMax &&
+        pf >= customPFMin &&
+        pf <= customPFMax
+       );
     default:
       return true;
     }
@@ -646,5 +836,4 @@ void watchdogTask(void *parameter) {
     esp_task_wdt_reset();
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
-
 }
