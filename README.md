@@ -2,7 +2,7 @@
 
 https://www.youtube.com/watch?v=sm2dUYbs29c
 
-Projecto de 8vo semestre de Ingeniería en Electrónica en el Tecnológico de Monterrey, Campus Monterrey.
+Proyecto de 8vo semestre de Ingeniería en Electrónica en el Tecnológico de Monterrey, Campus Monterrey.
 
 El dispositivo consiste en un contacto inteligente capaz de monitorear los parámetros eléctricos de una carga (V, I, FP, etc.) y también controlar el estado de la misma. El control consiste en la actuación del contacto (permitir o negar operación mediante un SSR) para así garantizar la seguridad del equipo ante anomalías como cambios bruscos en demanda de corriente y cambios en factor de potencia; apagándose automáticamente al no estar en umbrales especificados por el usuario.
 
